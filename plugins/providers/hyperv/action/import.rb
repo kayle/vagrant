@@ -18,11 +18,17 @@ module VagrantPlugins
           maxmemory = env[:machine].provider_config.maxmemory
           cpus = env[:machine].provider_config.cpus
           vmname = env[:machine].provider_config.vmname
+          remote_config = env[:machine].provider_config.remote_config
 
           env[:ui].output("Configured Dynamical memory allocation, maxmemory is #{maxmemory}") if maxmemory
           env[:ui].output("Configured startup memory is #{memory}") if memory
           env[:ui].output("Configured cpus number is #{cpus}") if cpus
           env[:ui].output("Configured vmname is #{vmname}") if vmname
+          env[:ui].output("Configured remote connection is in #{remote_config}") if remote_config
+
+          unless File.exist? ENV['VAGRANT_HYPERV_REMOTE_CONFIG']
+            raise Errors::BoxInvalid
+          end
 
           if !vm_dir.directory? || !hd_dir.directory?
             raise Errors::BoxInvalid
@@ -70,6 +76,9 @@ module VagrantPlugins
 
           if switch.nil?
             if switches.length > 1
+              
+              env[:ui].output(switches.inspect)
+              env[:ui].output(switches.length.to_s)
               env[:ui].detail(I18n.t("vagrant_hyperv.choose_switch") + "\n ")
               switches.each_index do |i|
                 switch = switches[i]
@@ -93,8 +102,14 @@ module VagrantPlugins
           env[:ui].detail("Cloning virtual hard drive...")
           source_path = image_path.to_s
           dest_path   = env[:machine].data_dir.join("disk#{image_ext}").to_s
-          FileUtils.cp(source_path, dest_path)
-          image_path = dest_path
+          
+          env[:ui].detail(dest_path)
+          dest_path = '//tsclient/c/vagrant/' + ("disk#{image_ext}").to_s
+          
+          env[:ui].detail(dest_path)
+          env[:machine].provider.driver.execute("copy_vhdx.ps1", {localPath: source_path, destinationPath: dest_path})
+          #FileUtils.cp(source_path, dest_path)
+          image_path = '/vagrant/' + ("disk#{image_ext}").to_s
 
           # We have to normalize the paths to be Windows paths since
           # we're executing PowerShell.

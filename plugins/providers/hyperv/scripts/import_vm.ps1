@@ -15,6 +15,11 @@ Param(
 $Dir = Split-Path $script:MyInvocation.MyCommand.Path
 . ([System.IO.Path]::Combine($Dir, "utils\write_messages.ps1"))
 
+$remote_config = (Get-Content -Raw -Path $env:VAGRANT_HYPERV_REMOTE_CONFIG) | ConvertFrom-Json 
+$securePassword = $remote_config.user | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential($remote_config.user, $securePassword)
+$session = New-PSSession -ComputerName  $remote_config.hostname -Credential $cred
+
 [xml]$vmconfig = Get-Content -Path  $vm_xml_config
 
 $generation = [int]($vmconfig.configuration.properties.subtype.'#text')+1
@@ -44,7 +49,7 @@ function GetUniqueName($name) {
 
 do {
     $name = $vm_name
-    $vm_name = GetUniqueName $name
+    $vm_name = Invoke-Command -Session $Session -ScriptBlock ${function:GetUniqueName} -ArgumentList $name
 } while ($vm_name -ne $name)
 
 if (!$memory) {
@@ -98,7 +103,7 @@ $secure_boot_enabled = (Select-Xml -xml $vmconfig -XPath "//secure_boot_enabled"
 $vm_params = @{
     Name = $vm_name
     Generation = $generation
-    NoVHD = $True
+    #NoVHD = $True
     MemoryStartupBytes = $MemoryStartupBytes
     SwitchName = $switchname
     BootDevice = $bootdevice
@@ -107,7 +112,9 @@ $vm_params = @{
 
 # Create the VM using the values in the hash map
 
-$vm = New-VM @vm_params
+$splatCommand = [scriptblock]::Create(" `$newVm = New-VM -Name '$vm_name' -Generation $generation -NoVHD -MemoryStartupBytes $MemoryStartupBytes -SwitchName '$switchname' -BootDevice $bootdevice -ErrorAction Stop ")
+write-host $splatCommand
+$vm = Invoke-Command -Session $Session -ScriptBlock $splatCommand 
 
 $notes = (Select-Xml -xml $vmconfig -XPath "//notes").node.'#text'
 
@@ -119,7 +126,7 @@ $more_vm_params = @{
 }
 
 If ($dynamicmemory) {
-    $more_vm_params.Add("DynamicMemory",$True)
+    $more_vm_params.Add("DynamicMemory", "`$True")
     $more_vm_params.Add("MemoryMinimumBytes",$MemoryMinimumBytes)
     $more_vm_params.Add("MemoryMaximumBytes", $MemoryMaximumBytes)
 } else {
@@ -131,7 +138,9 @@ if ($notes) {
 }
 
 # Set the values on the VM
-$vm | Set-VM @more_vm_params -Passthru
+Invoke-Command -Session $Session -ScriptBlock  ([scriptblock]::Create(" `$newVm | Set-VM $(&{$args}@more_vm_params) "))
+
+#$vm | Set-VM @more_vm_params -Passthru
 
 # Add drives to the virtual machine
 $controllers = Select-Xml -xml $vmconfig -xpath "//*[starts-with(name(.),'controller')]"
@@ -174,18 +183,21 @@ foreach ($controller in $controllers) {
             $addDriveParam.Add("ResourcePoolname",$ResourcePoolName)
         }
 
-        if ($drivetype -eq 'VHD') {
+        if ($driveType -eq 'VHD') {
             $addDriveParam.add("ControllerType",$ControllerType)
-            $vm | Add-VMHardDiskDrive @AddDriveparam
+            $addDriveCommand = [scriptblock]::Create(" `$newVm | Add-VMHardDiskDrive $(&{$args}@AddDriveparam) ")
+            Invoke-Command -Session $Session -ScriptBlock  $addDriveCommand
         }
     }
 }
 
-$vm_id = (Get-VM $vm_name).id.guid
+$vm_id = Invoke-Command -Session $Session { $newVm.id.guid }
 $resultHash = @{
-    name = $vm_name
-    id = $vm_id
+    name = [string]$vm_name 
+    id = [string]$vm_id
 }
 
 $result = ConvertTo-Json $resultHash
 Write-Output-Message $result
+
+Remove-PSSession $session

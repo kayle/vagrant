@@ -16,9 +16,9 @@ module VagrantPlugins
           raise Errors::WindowsRequired
         end
 
-        if !Vagrant::Util::Platform.windows_admin?
-          raise Errors::AdminRequired
-        end
+        #if !Vagrant::Util::Platform.windows_admin?
+        #  raise Errors::AdminRequired
+        #end
 
         if !Vagrant::Util::PowerShell.available?
           raise Errors::PowerShellRequired
@@ -32,6 +32,10 @@ module VagrantPlugins
 
       def initialize(machine)
         @machine = machine
+
+        remote_config = Pathname.new(machine.provider_config.remote_config)
+        remote_config = (remote_config.relative?) ? remote_config.expand_path : remote_config
+        ENV['VAGRANT_HYPERV_REMOTE_CONFIG'] = remote_config.to_s
 
         # This method will load in our driver, so we call it now to
         # initialize it.

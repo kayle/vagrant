@@ -3,14 +3,16 @@ param (
  )
 
 # Include the following modules
-$presentDir = Split-Path -parent $PSCommandPath
-$modules = @()
-$modules += $presentDir + "\utils\write_messages.ps1"
-forEach ($module in $modules) { . $module }
+$Dir = Split-Path $script:MyInvocation.MyCommand.Path
+. ([System.IO.Path]::Combine($Dir, "utils\write_messages.ps1"))
+
+$remote_config = (Get-Content -Raw -Path $env:VAGRANT_HYPERV_REMOTE_CONFIG) | ConvertFrom-Json 
+$securePassword = $remote_config.user | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential($remote_config.user, $securePassword)
+$session = New-PSSession -ComputerName  $remote_config.hostname -Credential $cred
 
 try {
-  $vm = Get-VM -Id $VmId -ErrorAction "stop"
-  Start-VM $vm -ErrorAction "stop"
+  $vm = Invoke-Command -Session $session -ScriptBlock  ([scriptblock]::Create(" Get-VM -Id $VmId | Start-VM -Passthru ")) -ErrorAction "stop"
   $state = $vm.state
   $status = $vm.status
   $name = $vm.name
@@ -25,3 +27,6 @@ try {
 catch {
   Write-Error-Message "Failed to start a VM $_"
 }
+
+
+Remove-PSSession $session

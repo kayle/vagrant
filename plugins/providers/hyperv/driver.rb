@@ -18,6 +18,7 @@ module VagrantPlugins
 
       def execute(path, options)
         r = execute_powershell(path, options)
+        puts r.stdout
         if r.exit_code != 0
           raise Errors::PowerShellError,
             script: path,
@@ -30,6 +31,7 @@ module VagrantPlugins
 
         error_match  = ERROR_REGEXP.match(r.stdout)
         output_match = OUTPUT_REGEXP.match(r.stdout)
+
 
         if error_match
           data = JSON.parse(error_match[1])
@@ -95,7 +97,6 @@ module VagrantPlugins
 
         # Always have a stop error action for failures
         ps_options << "-ErrorAction" << "Stop"
-
         opts = { notify: [:stdout, :stderr, :stdin] }
         Vagrant::Util::PowerShell.execute(path, *ps_options, **opts, &block)
       end
